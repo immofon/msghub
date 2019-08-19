@@ -17,7 +17,7 @@ type Msg struct {
 	Data []string
 }
 
-func M(from, to ID, data []string) Msg {
+func M(from, to ID, data ...string) Msg {
 	return Msg{From: from, To: to, Data: data}
 }
 
@@ -78,6 +78,8 @@ type Server struct {
 	NewID            func() ID
 	OnFailureSentMsg func(*Server, Msg)
 	BeforeService    func(*Server, *Msg)
+	OnConnect        func(*Server, ID)
+	OnDisconnect     func(*Server, ID)
 }
 
 func NewServer() *Server {
@@ -104,6 +106,8 @@ func NewServer() *Server {
 		OnFailureSentMsg: func(s *Server, msg Msg) {
 		},
 		BeforeService: func(s *Server, msg *Msg) {},
+		OnConnect:     func(*Server, ID) {},
+		OnDisconnect:  func(*Server, ID) {},
 	}
 	go s.loop()
 	return s
@@ -169,6 +173,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		id = s.NewID()
 		agent = NewAgent(conn, MESSAGE_CACHE_SIZE)
 		s.Agents[id] = agent
+		s.OnConnect(s, id)
 		close(ok)
 	}
 	<-ok
@@ -181,9 +186,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			delete(s.Agents, id)
-
 			agent.conn.Close()
 			close(agent.C)
+			s.OnDisconnect(s, id)
 		}
 	}()
 
@@ -209,7 +214,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		to, data := Decode(p)
 		s.C <- func() {
-			s.Send(M(id, to, data))
+			s.Send(M(id, to, data...))
 		}
 	}
 }
